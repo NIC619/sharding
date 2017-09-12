@@ -8,6 +8,8 @@
 ### Specification
 
 * Accounts no longer have a storage tree. Instead, the `storage_root` field of an account is replaced by a `storage_hash`, which is the hash of a storage byte array (empty by default)
+    * dynamic structures like mapping will be expected to store each entry in different contracts
+    * logic of getting/setting mapping entry values is expected to be implemented in compiler
 * In each transaction, we add two fields: `read_address_list` and `write_address_list`. We charge extra gas: `READ_ADDRESS_GAS * len(union(read_address_list, write_address_list)) + READ_BYTE_GAS * sum([len(code(x)) + len(storage(x)) for x in union(read_address_list, write_address_list)])`
 * A transaction is only allowed to access accounts that are in the `read_address_list` or are precompiles; it is only allowed to modify accounts that are in the `write_address_list`. Violations immediately throw an exception.
 * While executing a transaction, the EVM keeps track of the set of accounts that have already been modified via SSTORE. The gas cost of SSTORE is now as follows:
@@ -15,7 +17,8 @@
     * Let `EXPANSION_COST` = 0 if `sstore_arg <= len(storage) - 32`, else `EXPAND_BYTE_GAS * (sstore_arg - (len(storage) - 32))`
     * The total cost is `ACCESS_COST + EXPANSION_COST`
 * `SLOAD` and `SSTORE` read and write to the storage byte array much like `MLOAD` and `MSTORE`, though `SLOAD` does not expand storage (only `SSTORE` does)
-* The `CREATE` opcode is removed; only `CREATE2` is available. We also add `CREATE_COPY`, which is equal to `CREATE2` with one modification: it expects as output exactly 32 bytes (throwing an exception if return data size is not 32 bytes), of which the last 20 are parsed as an address, and code is copied from this address. 0 gas is charged at return time for creating the contract.
+* The `CREATE` opcode is removed; only `CREATE2` is available. We also add `CREATE_COPY`, which is similar to `CREATE2` but with few modifications: it expects input to include the address to copy code from and it expects as output exactly 32 bytes (throwing an exception if return data size is not 32 bytes), of which the last 20 are parsed as an address, and code is deployed to this address. 0 gas is charged at return time for creating the contract.
+    * `CREATE_COPY(v, n, a)` where `v` is the value to sent, `n` is the nonce(salt) to determine the address and `a` is the address to copy the code from
 * Introduces an opcode SCOPY (similar in form to CALLDATACOPY except copying memory to storage), which costs the same as `SSTORE` minus 3 gas, but adding 3 gas per 32 bytes copied (rounding up to the nearest 32 if the size is not an even multiple). `EXPANSION_COST` is equal to 0 if `SCOPY` copies zero bytes or if the copy operation copies into storage space that already exists; otherwise it is equal to `EXPAND_BYTE_GAS * (new_storage_length - old_storage_length)`
 
 ### Rationale
