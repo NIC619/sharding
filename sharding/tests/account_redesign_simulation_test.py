@@ -31,27 +31,51 @@ alloc[tester.a1] = {'balance': 10}
 t = chain(alloc)
 
 
-data_feed_code = """
+test_storage_code = """
 creator: address
-values: num[num]
+value: num
+value2: bytes32
+value3: bytes <= 160
 
 def __init__():
     self.creator = msg.sender
 
-def set(k: num, v: num) -> num:
+def set_num(v: num):
     if msg.sender == self.creator:
-        self.values[k] = v
-        return(1)
-    else:
-        return(0)
+        self.value = v
 
-def get(k: num) -> num:
-    return(self.values[k])
+def get_num() -> num:
+    return(self.value)
+
+def set_bt(v: bytes32):
+    if msg.sender == self.creator:
+        self.value2 = v
+
+def get_bt() -> bytes32:
+    return(self.value2)
+
+# def set_bts(v: bytes <= 160):
+#     if msg.sender == self.creator:
+#         self.value3 = v
+
+# def get_bts() -> bytes <= 160:
+#     return(self.value3)
 """
 
-example1 = t.contract(data_feed_code, language='viper')
-output1 = example1.get(500, read_list=[example1.address])
-assert output1 == 0
+# NOTE: tx.sender and tx.to and new contract address will be added to read/write list automatically
+nonce = utils.encode_int(t.head_state.get_nonce(tester.a0))
+addr_example1 = utils.mk_contract_address(tester.a0, nonce)
+# example1 = t.contract(test_storage_code, language='viper', read_list=[tester.a0, addr_example1], write_list=[addr_example1])
+example1 = t.contract(test_storage_code, language='viper')
+assert addr_example1 == example1.address
+example1.set_bt(utils.encode_int32(499))
+assert example1.get_bt() == utils.encode_int32(499)
+example1.set_num(399)
+assert example1.get_num() == 399
+bts = bytes([i for i in range(120)])
+# example1.set_bts(bts)
+# assert example1.get_bts() == bts
+assert False
 
 arither_code = """
 storage: num[num]
@@ -66,14 +90,17 @@ def f2():
     self.storage[0] *= 10
     self.f1()
     self.storage[0] *= 10
-
+@constant
 def f3() -> num:
     return(self.storage[0])
 """
 
+nonce = utils.encode_int(t.head_state.get_nonce(tester.a0))
+addr_example2 = utils.mk_contract_address(tester.a0, nonce)
 example2 = t.contract(arither_code, language='viper')
-example2.f2(read_list=[example2.address], write_list=[example2.address])
-assert example2.f3(read_list=[example2.address]) == 1010
+assert addr_example2 == example2.address
+example2.f2()
+assert example2.f3() == 1010
 
 test_read_access_code = """
 storage: num[num]
@@ -94,11 +121,18 @@ def read_write_storage() -> num:
         return(1)
     else:
         return(0)
+def track_storage_modified(addr: address, raw_call_data: bytes <= 8):
+    self.storage[1] = 111
+    raw_call(addr, raw_call_data, gas=50000, outsize=0)
 """
-
+nonce = utils.encode_int(t.head_state.get_nonce(tester.a0))
+addr_example3 = utils.mk_contract_address(tester.a0, nonce)
 example3 = t.contract(test_read_access_code, language='viper')
 assert example3.read_balance(tester.a1, 10, read_list=[tester.a1])
 assert example3.read_code_size(example2.address, read_list=[example2.address])
-assert example3.read_write_storage(read_list=[example3.address], write_list=[example3.address])
+assert example3.read_write_storage()
+example3.track_storage_modified(example2.address, utils.sha3("f1()")[:8], read_list=[example2.address], write_list=[example2.address])
+assert example2.f3() == 1011
 
 t.tx(sender=tester.k1, to=tester.a2, value=1, data=b'', read_list=[example1.address, example2.address], write_list=[example3.address])
+# t.mine(1)
