@@ -93,36 +93,52 @@ def set_bt32(v: bytes32):
 #     mp[k] = v
 """
 
-test_scopy_opcode_code = """
-number: public(num)
-bt32: public(bytes32)
-bts: public(bytes <= 160)
+test_mcopy_rawcode = bytes(bytearray([
+    0x60, 0x17,
+    0x56, # JUMP 23
+    0x60, 0x20, 0x60, 0x00, 0x60, 0x40,
+    0x37, # CALLDATACOPY 64 0 32
+    0x60, 0x60, 0x60, 0x20, 0x60, 0x40,
+    0x5c, # MCOPY 64 32 96
+    0x60, 0x20, 0x60, 0x60,
+    0xf3, # RETURN 96 32
+    0x00, # STOP
+    0x5b, # JUMPDEST
+    0x60, 0x13, 0x60, 0x03, 0x61, 0x01, 0x40,
+    0x39, # CODECOPY 320 3 20
+    0x60, 0x13, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 20
+]))
 
-def set_num(v: num):
-    self.number = v
-
-def set_bt32(v: bytes32):
-    self.bt32 = v
-
-# def set_bts(v: bytes <= 160):
-#     self.bts = v
-"""
+test_scopy_rawcode = bytes(bytearray([
+    0x60, 0x1a,
+    0x56, # JUMP 26
+    0x60, 0x20, 0x60, 0x00, 0x60, 0x40,
+    0x37, # CALLDATACOPY 64 0 32 --> CD1
+    0x60, 0x20, 0x60, 0x20, 0x60, 0x60,
+    0x37, # CALLDATACOPY 96 32 32 --> CD2
+    0x60, 0x40,
+    0x51, # MLOAD 64
+    0x60, 0x20, 0x60, 0x60,
+    0x5d, # SCOPY 96 32 CD1
+    0x00, # STOP
+    0x5b, # JUMPDEST
+    0x60, 0x17, 0x60, 0x03, 0x61, 0x01, 0x40,
+    0x39, # CODECOPY 320 3 23
+    0x60, 0x17, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 23
+]))
 
 def test_read_write_access():
+    # NOTE: tx.sender and tx.to and new contract address will be added to read/write list automatically
     alloc = {}
     alloc[tester.a1] = {'balance': 10}
     t = chain(alloc)
 
     # Deploy test storage layout contract
-    nonce = utils.encode_int(t.head_state.get_nonce(tester.a0))
-    addr_storage_layout_contract = utils.mk_contract_address(tester.a0, nonce)
     storage_layout_contract = t.contract(test_new_storage_layout_code, language='viper')
-    assert addr_storage_layout_contract == storage_layout_contract.address
     # Deploy test read write access contract
-    nonce = utils.encode_int(t.head_state.get_nonce(tester.a0))
-    addr_read_write_access_contract = utils.mk_contract_address(tester.a0, nonce)
     read_write_access_contract = t.contract(test_read_write_access_code, language='viper')
-    assert addr_read_write_access_contract == read_write_access_contract.address
     # Test read balance
     assert read_write_access_contract.read_balance(tester.a1, 10, read_list=[tester.a1])
     # Test read code size
@@ -143,12 +159,8 @@ def test_storage_layout():
     alloc = {}
     t = chain(alloc)
 
-    # NOTE: tx.sender and tx.to and new contract address will be added to read/write list automatically
-    nonce = utils.encode_int(t.head_state.get_nonce(tester.a0))
-    addr_storage_layout_contract = utils.mk_contract_address(tester.a0, nonce)
     # storage_layout_contract = t.contract(test_new_storage_layout_code, language='viper', read_list=[tester.a0, addr_storage_layout_contract], write_list=[addr_storage_layout_contract])
     storage_layout_contract = t.contract(test_new_storage_layout_code, language='viper')
-    assert addr_storage_layout_contract == storage_layout_contract.address
     storage_layout_contract.set_bt32(utils.encode_int32(499))
     assert storage_layout_contract.get_bt32() == utils.encode_int32(499)
     assert storage_layout_contract.get_number() == 9
@@ -158,20 +170,26 @@ def test_storage_layout():
     # storage_layout_contract.set_bts(bts)
     # assert storage_layout_contract.get_bts() == bts
 
+def test_mcopy_opcode():
+    alloc = {}
+    t = chain(alloc)
+    
+    mcopy_contract = t.contract(test_mcopy_rawcode, language='evm')
+    # import binascii
+    # print( binascii.hexlify(t.head_state.get_code(mcopy_contract)))
+    assert t.call(to=mcopy_contract, data=utils.encode_int32(255)) == utils.encode_int32(255)
+    t.mine(1)
+
 def test_scopy_opcode():
     alloc = {}
     t = chain(alloc)
     
-    # nonce = utils.encode_int(t.head_state.get_nonce(tester.a0))
-    # addr_scopy_opcode_contract = utils.mk_contract_address(tester.a0, nonce)
-    # scopy_opcode_contract = t.contract(test_scopy_opcode_code, language='viper')
-    # scopy_opcode_contract.set_num(7440)
-    # scopy_opcode_contract.set_bt32(utils.encode_int32(7440))
-    rawcode = bytearray([0x61, 0x01, 0x40, 0x61, 0x01, 0x40, 0x52, 0x61, 0x01, 0x41, 0x61, 0x01, 0x60, 0x52, 0x60, 0x02, 0x60, 0x40, 0x61, 0x01, 0x40, 0x5d, 0x00])
-    nonce = utils.encode_int(t.head_state.get_nonce(tester.a0))
-    addr_rawcode = utils.mk_contract_address(tester.a0, nonce)
-    # addr_rawcode = t.contract(bytes(rawcode), language='evm')
-    assert len(t.head_state.get_storage_data(addr_rawcode)) == 0
-    t.head_state.set_code(addr_rawcode, bytes(rawcode))
-    t.tx(to=addr_rawcode)
-    assert len(t.head_state.get_storage_data(addr_rawcode)) > 0
+    scopy_contract = t.contract(test_scopy_rawcode, language='evm')
+    # import binascii
+    # print( binascii.hexlify(t.head_state.get_code(scopy_contract)))
+    assert len(t.head_state.get_storage_data(scopy_contract)) == 0
+    # first arg specify storage slot to store, second arg is the data to be stored
+    args = utils.encode_int32(2) + utils.encode_int32(281474976710655)
+    t.tx(to=scopy_contract, data=args)
+    assert len(t.head_state.get_storage_data(scopy_contract)) > 0
+    t.mine(1)
