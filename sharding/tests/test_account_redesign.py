@@ -16,7 +16,9 @@ from ethereum.tools import tester
 
 
 @pytest.fixture(scope='function')
-def chain(alloc={}, genesis_gas_limit=4712388, min_gas_limit=5000, startgas=3141592):
+def chain(alloc={}, genesis_gas_limit=4712388,
+            min_gas_limit=5000, startgas=3141592,
+            enable_constantipole=False):
     # alloc
     for i in range(9):
         alloc[utils.int_to_addr(i)] = {'balance': 1}
@@ -33,6 +35,8 @@ def chain(alloc={}, genesis_gas_limit=4712388, min_gas_limit=5000, startgas=3141
     tester.STARTGAS = startgas
     c = tester.Chain(alloc=alloc, genesis=genesis)
     c.chain.env.config['MIN_GAS_LIMIT'] = min_gas_limit
+    if enable_constantipole:
+        c.chain.env.config['CONSTANTINOPLE_FORK_BLKNUM'] = 0
     c.mine(1)
     return c
 
@@ -174,22 +178,32 @@ def test_mcopy_opcode():
     alloc = {}
     t = chain(alloc)
     
-    mcopy_contract = t.contract(test_mcopy_rawcode, language='evm')
+    mcopy_contract_addr = t.contract(test_mcopy_rawcode, language='evm')
     # import binascii
-    # print( binascii.hexlify(t.head_state.get_code(mcopy_contract)))
-    assert t.call(to=mcopy_contract, data=utils.encode_int32(255)) == utils.encode_int32(255)
+    # print( binascii.hexlify(t.head_state.get_code(mcopy_contract_addr)))
+    assert t.call(to=mcopy_contract_addr, data=utils.encode_int32(255)) == utils.encode_int32(255)
     t.mine(1)
 
 def test_scopy_opcode():
     alloc = {}
     t = chain(alloc)
     
-    scopy_contract = t.contract(test_scopy_rawcode, language='evm')
+    scopy_contract_addr = t.contract(test_scopy_rawcode, language='evm')
     # import binascii
-    # print( binascii.hexlify(t.head_state.get_code(scopy_contract)))
-    assert len(t.head_state.get_storage_data(scopy_contract)) == 0
+    # print( binascii.hexlify(t.head_state.get_code(scopy_contract_addr)))
+    assert len(t.head_state.get_storage_data(scopy_contract_addr)) == 0
     # first arg specify storage slot to store, second arg is the data to be stored
     args = utils.encode_int32(2) + utils.encode_int32(281474976710655)
-    t.tx(to=scopy_contract, data=args)
-    assert len(t.head_state.get_storage_data(scopy_contract)) > 0
+    t.tx(to=scopy_contract_addr, data=args)
+    assert len(t.head_state.get_storage_data(scopy_contract_addr)) > 0
     t.mine(1)
+
+def test_create2():
+    alloc = {}
+    t = chain(alloc, enable_constantipole=True)
+
+    pre_addr = utils.mk_metropolis_contract_address(tester.a0, 3, test_scopy_rawcode)
+    deployed_addr = t.contract(test_scopy_rawcode, language='evm', salt=3)
+    assert pre_addr == deployed_addr
+    import binascii
+    print( binascii.hexlify(t.head_state.get_code(pre_addr)))
