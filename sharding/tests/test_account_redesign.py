@@ -133,6 +133,60 @@ test_scopy_rawcode = bytes(bytearray([
     0xf3, # RETURN 320 23
 ]))
 
+test_create2_rawcode = bytes(bytearray([
+    0x60, 0x29,
+    0x56, # JUMP 41
+    0x60, 0x20, 0x60, 0x00, 0x60, 0x40,
+    0x37, # CALLDATACOPY 64 0 32 --> CD1
+    0x60, 0x20,
+    0x36, # CALLDATASIZE
+    0x03, # SUB CALLDATASIZE-32
+    0x60, 0x20, 0x60, 0x60,
+    0x37, # CALLDATACOPY 96 32 (CALLDATASIZE-32) --> CD2
+    0x60, 0x20,
+    0x36, # CALLDATASIZE
+    0x03, # SUB CALLDATASIZE-32
+    0x60, 0x60,
+    0x60, 0x40,
+    0x51, # MLOAD 64
+    0x60, 0x00,
+    0xfb, # CREATE2 0 CD1 96 (CALLDATASIZE-32)
+    0x61, 0x01, 0x40,
+    0x52, # MSTORE 320
+    0x60, 0x20, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 32
+    0x5b, # JUMPDEST
+    0x60, 0x26, 0x60, 0x03, 0x61, 0x01, 0x40,
+    0x39, # CODECOPY 320 3 38
+    0x60, 0x26, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 38
+]))
+
+test_create_copy_rawcode = bytes(bytearray([
+    0x60, 0x24,
+    0x56, # JUMP 36
+    0x60, 0x20, 0x60, 0x00, 0x60, 0x40,
+    0x37, # CALLDATACOPY 64 0 32 --> CD1
+    0x60, 0x20, 0x60, 0x20, 0x60, 0x60,
+    0x37, # CALLDATACOPY 96 32 32 --> CD2
+    0x60, 0x60,
+    0x51, # MLOAD 96
+    0x60, 0x40,
+    0x51, # MLOAD 64
+    0x60, 0x00,
+    0xfc, # CREATE_COPY 0 CD1 CD2
+    0x61, 0x01, 0x40,
+    0x52, # MSTORE 320
+    0x60, 0x20, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 32
+    0x5b, # JUMPDEST
+    0x60, 0x21, 0x60, 0x03, 0x61, 0x01, 0x40,
+    0x39, # CODECOPY 320 3 33
+    0x60, 0x21, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 33
+]))
+
+
 def test_read_write_access():
     # NOTE: tx.sender and tx.to and new contract address will be added to read/write list automatically
     alloc = {}
@@ -202,8 +256,36 @@ def test_create2():
     alloc = {}
     t = chain(alloc, enable_constantipole=True)
 
-    pre_addr = utils.mk_metropolis_contract_address(tester.a0, 3, test_scopy_rawcode)
-    deployed_addr = t.contract(test_scopy_rawcode, language='evm', salt=3)
-    assert pre_addr == deployed_addr
-    import binascii
-    print( binascii.hexlify(t.head_state.get_code(pre_addr)))
+    # Test deploy by transaction
+    derived_addr = utils.mk_metropolis_contract_address(tester.a0, t.head_state.get_nonce(tester.a0), test_create2_rawcode)
+    deployed_addr = t.contract(test_create2_rawcode, language='evm')
+    # deployed_addr = t.call(data=test_create2_rawcode)
+    assert derived_addr == deployed_addr
+    # import binascii
+    # print( binascii.hexlify(t.head_state.get_code(derived_addr)))
+    t.mine(1)
+    for i in range(3):
+        # Test deploy by contract
+        nonce = i+1
+        args = utils.encode_int32(nonce) + test_create2_rawcode
+        derived_addr = utils.mk_metropolis_contract_address(deployed_addr, nonce, test_create2_rawcode)
+        t.tx(to=deployed_addr, data=args, read_list=[derived_addr], write_list=[derived_addr])
+        assert len(t.head_state.get_code(derived_addr)) > 0
+        t.mine(1)
+
+def test_create_copy():
+    alloc = {}
+    t = chain(alloc, enable_constantipole=True)
+
+    # Test deploy by transaction
+    derived_addr = utils.mk_metropolis_contract_address(tester.a0, t.head_state.get_nonce(tester.a0), test_create_copy_rawcode)
+    deployed_addr = t.contract(test_create_copy_rawcode, language='evm')
+    # deployed_addr = t.call(data=test_create_copy_rawcode)
+    assert derived_addr == deployed_addr
+    t.mine(1)
+    nonce = 1
+    args = utils.encode_int32(nonce) + utils.zpad(deployed_addr, 32)
+    derived_addr = utils.mk_metropolis_contract_address(deployed_addr, nonce, t.head_state.get_code(deployed_addr))
+    t.tx(to=deployed_addr, data=args, read_list=[derived_addr], write_list=[derived_addr])
+    assert len(t.head_state.get_code(derived_addr)) > 0
+    t.mine(1)
