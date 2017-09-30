@@ -249,6 +249,8 @@ def test_scopy_opcode():
     # first arg specify storage slot to store, second arg is the data to be stored
     args = utils.encode_int32(2) + utils.encode_int32(281474976710655)
     t.tx(to=scopy_contract_addr, data=args)
+    from ethereum import opcodes
+    assert t.last_gas_used() >= (opcodes.GEXPANDBYTE * 64)
     assert len(t.head_state.get_storage_data(scopy_contract_addr)) > 0
     t.mine(1)
 
@@ -261,6 +263,8 @@ def test_create2():
     deployed_addr = t.contract(test_create2_rawcode, language='evm')
     # deployed_addr = t.call(data=test_create2_rawcode)
     assert derived_addr == deployed_addr
+    from ethereum import opcodes
+    assert t.last_gas_used() >= opcodes.CREATE2[3] + (opcodes.GEXPANDBYTE * len(t.head_state.get_code(derived_addr)))
     # import binascii
     # print( binascii.hexlify(t.head_state.get_code(derived_addr)))
     t.mine(1)
@@ -270,6 +274,7 @@ def test_create2():
         args = utils.encode_int32(nonce) + test_create2_rawcode
         derived_addr = utils.mk_metropolis_contract_address(deployed_addr, nonce, test_create2_rawcode)
         t.tx(to=deployed_addr, data=args, read_list=[derived_addr], write_list=[derived_addr])
+        assert t.last_gas_used() >= opcodes.CREATE2[3] + (opcodes.GEXPANDBYTE * len(t.head_state.get_code(derived_addr)))
         assert len(t.head_state.get_code(derived_addr)) > 0
         t.mine(1)
 
@@ -287,5 +292,7 @@ def test_create_copy():
     args = utils.encode_int32(nonce) + utils.zpad(deployed_addr, 32)
     derived_addr = utils.mk_metropolis_contract_address(deployed_addr, nonce, t.head_state.get_code(deployed_addr))
     t.tx(to=deployed_addr, data=args, read_list=[derived_addr], write_list=[derived_addr])
+    from ethereum import opcodes
+    assert t.last_gas_used() >= opcodes.CREATE_COPY[3]
     assert len(t.head_state.get_code(derived_addr)) > 0
     t.mine(1)
