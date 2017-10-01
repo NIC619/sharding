@@ -162,28 +162,42 @@ test_create2_rawcode = bytes(bytearray([
     0xf3, # RETURN 320 38
 ]))
 
+initcode_for_createcopy_rawcode_before_insert = bytes(bytearray([
+    0x73,
+    # Insert 20 bytes address here
+    0x61, 0x01, 0x40,
+    0x52, # MSTORE 320
+    0x30, # ADDRESS
+    0x60, 0x00,
+    0x55, # SSTORE 0 this.address
+    0x60, 0x01, 0x60, 0x20, 0x61, 0x01, 0x40,
+    0x5d, # SCOPY 320 32 1
+    0x60, 0x20, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 32
+]))
+
 test_create_copy_rawcode = bytes(bytearray([
-    0x60, 0x24,
-    0x56, # JUMP 36
+    0x60, 0x25,
+    0x56, # JUMP 37
     0x60, 0x20, 0x60, 0x00, 0x60, 0x40,
     0x37, # CALLDATACOPY 64 0 32 --> CD1
-    0x60, 0x20, 0x60, 0x20, 0x60, 0x60,
-    0x37, # CALLDATACOPY 96 32 32 --> CD2
+    0x60, 0x2b, 0x60, 0x20, 0x60, 0x60,
+    0x37, # CALLDATACOPY 96 32 4x --> CD2
+    0x60, 0x2b,
     0x60, 0x60,
-    0x51, # MLOAD 96
     0x60, 0x40,
     0x51, # MLOAD 64
     0x60, 0x00,
-    0xfc, # CREATE_COPY 0 CD1 CD2
+    0xfc, # CREATE_COPY 0 CD1 96 43
     0x61, 0x01, 0x40,
     0x52, # MSTORE 320
     0x60, 0x20, 0x61, 0x01, 0x40,
     0xf3, # RETURN 320 32
     0x5b, # JUMPDEST
-    0x60, 0x21, 0x60, 0x03, 0x61, 0x01, 0x40,
-    0x39, # CODECOPY 320 3 33
-    0x60, 0x21, 0x61, 0x01, 0x40,
-    0xf3, # RETURN 320 33
+    0x60, 0x22, 0x60, 0x03, 0x61, 0x01, 0x40,
+    0x39, # CODECOPY 320 3 34
+    0x60, 0x22, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 34
 ]))
 
 
@@ -289,10 +303,17 @@ def test_create_copy():
     assert derived_addr == deployed_addr
     t.mine(1)
     nonce = 1
-    args = utils.encode_int32(nonce) + utils.zpad(deployed_addr, 32)
-    derived_addr = utils.mk_metropolis_contract_address(deployed_addr, nonce, t.head_state.get_code(deployed_addr))
+    # Insert the address to copy the code from into init code of CREATE_COPY
+    initcode_for_createcopy_rawcode_after_insert = (initcode_for_createcopy_rawcode_before_insert[:1]
+        + deployed_addr
+        + initcode_for_createcopy_rawcode_before_insert[1:])
+    args = utils.encode_int32(nonce) + initcode_for_createcopy_rawcode_after_insert
+    derived_addr = utils.mk_metropolis_contract_address(deployed_addr, nonce, initcode_for_createcopy_rawcode_after_insert)
     t.tx(to=deployed_addr, data=args, read_list=[derived_addr], write_list=[derived_addr])
     from ethereum import opcodes
-    assert t.last_gas_used() >= opcodes.CREATE_COPY[3]
+    # OPERATION takes CREATE_COPY, SCOPY with 64 bytes exansion and account storage modification cost
+    assert t.last_gas_used() >= (opcodes.CREATE_COPY[3] + opcodes.GEXPANDBYTE * 64 + 8000)
     assert len(t.head_state.get_code(derived_addr)) > 0
+    # Verify storage modification in init code did work
+    assert len(t.head_state.get_storage_data(derived_addr)) > 0
     t.mine(1)
