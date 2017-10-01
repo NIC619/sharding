@@ -97,6 +97,56 @@ def set_bt32(v: bytes32):
 #     mp[k] = v
 """
 
+test_new_sload_sstore_rawcode = bytes(bytearray([
+    0x60, 0x4d,
+    0x56, # JUMP 77
+    0x60, 0x20, 0x60, 0x00, 0x60, 0x20,
+    0x37, # CALLDATACOPY 32 0 32 --> CD1
+    0x60, 0x20, 0x60, 0x20, 0x60, 0x40,
+    0x37, # CALLDATACOPY 64 32 32 --> CD2
+    0x60, 0x20, 0x60, 0x40, 0x60, 0x60,
+    0x37, # CALLDATACOPY 96 64 32 --> CD3
+    0x60, 0x20,
+    0x51, # MLOAD 32
+    0x60, 0x00,
+    0x14, # EQ 0 CD1
+    0x15, # ISZERO
+    0x60, 0x2d,
+    0x57, # JUMPI 45
+    0x60, 0x40,
+    0x51, # MLOAD 64
+    0x54, # SLOAD CD2
+    0x61, 0x01, 0x40,
+    0x52, # MSTORE 320
+    0x60, 0x20, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 32
+    0x5b, # JUMPDEST
+    0x60, 0x20,
+    0x51, # MLOAD 32
+    0x60, 0x01,
+    0x14, # EQ 1 CD1
+    0x15, # ISZERO
+    0x60, 0x40,
+    0x57, # JUMPI 64
+    0x60, 0x60,
+    0x51, # MLOAD 96
+    0x60, 0x40,
+    0x51, # MLOAD 64
+    0x55, # SSTORE CD2 CD3
+    0x00, # STOP
+    0x5b, # JUMPDEST
+    0x60, 0x40,
+    0x51, # MLOAD 64
+    0x60, 0x3c, 0x60, 0x5a,
+    0x5d, # SCOPY 90 60 CD2
+    0x00, # STOP
+    0x5b, # JUMPDEST
+    0x60, 0x4a, 0x60, 0x03, 0x61, 0x01, 0x40,
+    0x39, # CODECOPY 320 3 74
+    0x60, 0x4a, 0x61, 0x01, 0x40,
+    0xf3, # RETURN 320 74
+]))
+
 test_mcopy_rawcode = bytes(bytearray([
     0x60, 0x17,
     0x56, # JUMP 23
@@ -242,15 +292,28 @@ def test_storage_layout():
     # storage_layout_contract.set_bts(bts)
     # assert storage_layout_contract.get_bts() == bts
 
-def test_mcopy_opcode():
-    alloc = {}
-    t = chain(alloc)
+# def test_new_sload_sstore():
+#     alloc = {}
+#     t = chain(alloc)
+
+#     new_sload_sstore_contract_addr = t.contract(test_new_sload_sstore_rawcode, language='evm')
+#     args = utils.encode_int32(1) + utils.encode_int32(96) + utils.encode_int32(65535)
+#     t.tx(to=new_sload_sstore_contract_addr, data=args)
+#     args = utils.encode_int32(0) + utils.encode_int32(96) + utils.encode_int32(65535)
+#     assert t.call(to=new_sload_sstore_contract_addr, data=args) == utils.encode_int32(65535)
+#     args = utils.encode_int32(2) + utils.encode_int32(26) + utils.encode_int32(654825999855)
+#     t.tx(to=new_sload_sstore_contract_addr, data=args)
+#     t.mine(1)
+
+# def test_mcopy_opcode():
+#     alloc = {}
+#     t = chain(alloc)
     
-    mcopy_contract_addr = t.contract(test_mcopy_rawcode, language='evm')
-    # import binascii
-    # print( binascii.hexlify(t.head_state.get_code(mcopy_contract_addr)))
-    assert t.call(to=mcopy_contract_addr, data=utils.encode_int32(255)) == utils.encode_int32(255)
-    t.mine(1)
+#     mcopy_contract_addr = t.contract(test_mcopy_rawcode, language='evm')
+#     # import binascii
+#     # print( binascii.hexlify(t.head_state.get_code(mcopy_contract_addr)))
+#     assert t.call(to=mcopy_contract_addr, data=utils.encode_int32(255)) == utils.encode_int32(255)
+#     t.mine(1)
 
 def test_scopy_opcode():
     alloc = {}
