@@ -95,7 +95,6 @@ def test_account_proof():
     alloc[tester.a0] = {'balance': 10}
     c = chain(alloc)
     
-    contract_addr = utils.mk_contract_address(tester.a0, c.head_state.get_nonce(tester.a0))
     test_account_proof_contract = c.contract(test_account_proof_code, value=10, language='viper')
 
     addrs = [tester.a1, tester.a2, tester.a3]
@@ -103,7 +102,9 @@ def test_account_proof():
     try:
         getMerkleProof(c.head_state.trie.db, c.head_state.trie.root_hash, addrs[0])
     except AssertionError:
-        print("Account does not exist yet, can not make merkle proof")
+        print("Account does not exist yet, can not generate merkle proof")
+    else:
+        raise Exception("Shouldn't be able to generate merkle proof of non-exist account")
 
     assert c.head_state.get_balance(test_account_proof_contract.address) == 10
     # send 1 wei to each of the accounts in addrs
@@ -114,8 +115,10 @@ def test_account_proof():
         proof = getMerkleProof(c.head_state.trie.db, c.head_state.trie.root_hash, addr)
         acct_rlpdata = c.head_state.trie.get(addr)
         assert verifyMerkleProof(proof, c.head_state.trie.root_hash, acct_rlpdata)
-    # try verify proof against wrong value
+    # try verifying proofs against wrong value
     try:
         verifyMerkleProof(proof, c.head_state.trie.root_hash, bytes("wrong_value", encoding='utf-8'))
     except AssertionError:
         print("Can not verify proofs against wrong value")
+    else:
+        raise Exception("Shouldn't be able to verify proofs against wrong value")
