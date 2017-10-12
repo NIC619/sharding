@@ -256,7 +256,7 @@ def test_read_write_access():
     alloc = {}
     alloc[tester.a1] = {'balance': 10}
     t = chain(alloc)
-
+    
     # Deploy test storage layout contract
     storage_layout_contract = t.contract(test_new_storage_layout_code, language='viper')
     # Deploy test read write access contract
@@ -327,6 +327,7 @@ def test_scopy_opcode():
     args = utils.encode_int32(2) + utils.encode_int32(281474976710655)
     t.tx(to=scopy_contract_addr, data=args)
     from ethereum import opcodes
+    # The gas cost below is calculated base on old sload/sstore behavior
     assert t.last_gas_used() >= (opcodes.GEXPANDBYTE * 64)
     assert len(t.head_state.get_storage_data(scopy_contract_addr)) > 0
     t.mine(1)

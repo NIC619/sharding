@@ -110,6 +110,8 @@ def test_account_proof():
     # send 1 wei to each of the accounts in addrs
     test_account_proof_contract.touch(addrs)
     assert c.head_state.get_balance(test_account_proof_contract.address) == 7
+    # Can't get latest db update on head state, need to commit/mine it first
+    c.mine(1)
     # for each account in addrs, generate and verify merkle proof
     for addr in addrs:
         proof = getMerkleProof(c.head_state.trie.db, c.head_state.trie.root_hash, addr)
