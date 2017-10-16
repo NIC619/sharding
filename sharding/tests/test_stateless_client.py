@@ -12,7 +12,8 @@ from ethereum.tools import tester
 from ethereum.tools.stateless_client import (get_merkle_proof,
                                              verify_merkle_proof,
                                              store_merkle_branch_nodes,
-                                             mk_account_proof_wrapper)
+                                             mk_account_proof_wrapper,
+                                             mk_tx_bundle)
 
 
 @pytest.fixture(scope='function')
@@ -137,15 +138,20 @@ def test_transaction_bundle():
     alloc[tester.a0] = {'balance': 10}
     c = chain(alloc)
 
+    tx_sender_and_to = [tester.a0, utils.mk_contract_address(tester.a0, c.head_state.get_nonce(tester.a0))]
     test_account_proof_contract = c.contract(
-        test_account_proof_code, value=10, language='viper')
+        test_account_proof_code, value=10, language='viper',
+        read_list=tx_sender_and_to,
+        write_list=tx_sender_and_to)
     c.mine(1)
     # Block #2, first touch of the accounts
     not_yet_exits_accts = [tester.a4, tester.a5, tester.a6]
     assert c.head_state.get_balance(test_account_proof_contract.address) == 10
     # send 1 wei to each of the accounts in not_yet_exits_accts
     test_account_proof_contract.touch(
-        not_yet_exits_accts, read_list=not_yet_exits_accts, write_list=not_yet_exits_accts)
+        not_yet_exits_accts,
+        read_list=not_yet_exits_accts + tx_sender_and_to,
+        write_list=not_yet_exits_accts + tx_sender_and_to)
     assert c.head_state.get_balance(test_account_proof_contract.address) == 7
     c.mine(1)
 
@@ -156,31 +162,21 @@ def test_transaction_bundle():
     block_3 = c.chain.get_block_by_number(3)
     tx_bundle_list = []
     for tx in block_3.transactions:
-        tx_bundle = tx.to_dict()
-        read_list_proof = []
-        for acct in tx.read_list:
-            o = mk_account_proof_wrapper(c.chain.state.trie.db, block_2, acct)
-            read_list_proof.append({'0x' + utils.encode_hex(acct): o})
-        tx_bundle["read_list_proof"] = read_list_proof
-        write_list_proof = []
-        for acct in tx.write_list:
-            o = mk_account_proof_wrapper(c.chain.state.trie.db, block_2, acct)
-            write_list_proof.append({'0x' + utils.encode_hex(acct): o})
-        tx_bundle["write_list_proof"] = write_list_proof
-        tx_bundle_list.append(tx_bundle)
+        tx_bundle_list.append(mk_tx_bundle(c.chain.state.trie.db, tx, block_2.header, block_3.header))
     # Since touched accounts do not exist yet in block #1
     # there should be no proofs generated for them and
     # `exist_yet` should be True to indicate their non-existence
     # tx.sender and tx.to are exceptions since they already
     # exist in block #1
-    print(json.dumps(tx_bundle_list, indent=4, default=str))
-
+    
     c.mine(5)
 
     # Block #9, revisit the touched accounts.
     existing_accts = [tester.a4, tester.a5]
     assert test_account_proof_contract.read_balance(
-        existing_accts, read_list=existing_accts, write_list=existing_accts) == 2
+        existing_accts,
+        read_list=existing_accts + tx_sender_and_to,
+        write_list=existing_accts + tx_sender_and_to) == 2
     c.mine(1)
 
     # Make proofs for the accounts touched. Since they are touched
@@ -190,21 +186,11 @@ def test_transaction_bundle():
     block_9 = c.chain.get_block_by_number(9)
     tx_bundle_list = []
     for tx in block_9.transactions:
-        tx_bundle["tx_data"] = tx.to_dict()
-        read_list_proof = []
-        for acct in tx.read_list:
-            o = mk_account_proof_wrapper(c.chain.state.trie.db, block_8, acct)
-            read_list_proof.append({'0x' + utils.encode_hex(acct): o})
-        tx_bundle["read_list_proof"] = read_list_proof
-        write_list_proof = []
-        for acct in tx.write_list:
-            o = mk_account_proof_wrapper(c.chain.state.trie.db, block_8, acct)
-            write_list_proof.append({'0x' + utils.encode_hex(acct): o})
-        tx_bundle["write_list_proof"] = write_list_proof
-        tx_bundle_list.append(tx_bundle)
+        tx_bundle_list.append(mk_tx_bundle(c.chain.state.trie.db, tx, block_8.header, block_9.header))
     # Proofs should be generated for the existing accounts
-    print(json.dumps(tx_bundle_list, indent=4, default=str))
-
+    # for bundle in tx_bundle_list:
+    #     for k,v in bundle.items():
+    #         print(k,":",v)
 
 def test_stateless_client_tx_processing_simulation():
     alloc = {}
@@ -222,8 +208,9 @@ def test_stateless_client_tx_processing_simulation():
         current_block = c.chain.get_block_by_number(current_block_number)
         stateless_client["blocks"].append({"number": current_block.number,
             "state_root": current_block.header.state_root,
-            "root_node": c.chain.state.db.get(current_block.header.state_root)})
-
+            "root_node": c.chain.state.trie.db.get(current_block.header.state_root)})
+    # print(c.chain.state.trie.trie.get(utils.sha3(tester.a1)))
+    # print("--------------------------------------------")
     # Target transaction
     c.tx(sender=tester.k1, to=tester.a2, value=1, data=b'', read_list=[
          tester.a1, tester.a2], write_list=[tester.a1, tester.a2])
@@ -233,28 +220,18 @@ def test_stateless_client_tx_processing_simulation():
     current_block = c.chain.get_block_by_number(current_block_number)
     stateless_client["blocks"].append({"number": current_block.number,
         "state_root": current_block.header.state_root,
-        "root_node": c.chain.state.db.get(current_block.header.state_root)})
+        "root_node": c.chain.state.trie.db.get(current_block.header.state_root)})
     # Get the tx bundle of the target transaction
     prev_block = c.chain.get_block_by_number(current_block_number-1)
     tx = current_block.transactions[0]
-    tx_bundle = {"tx_data": tx.to_dict()}
-    read_list_proof = []
-    for acct in tx.read_list:
-        o = mk_account_proof_wrapper(c.chain.state.trie.db, prev_block, acct)
-        read_list_proof.append({acct: o})
-    tx_bundle["read_list_proof"] = read_list_proof
-    write_list_proof = []
-    for acct in tx.write_list:
-        o = mk_account_proof_wrapper(c.chain.state.trie.db, prev_block, acct)
-        write_list_proof.append({acct: o})
-    tx_bundle["write_list_proof"] = write_list_proof
-    # print(json.dumps(tx_bundle, indent=4, default=str))
-
+    tx_bundle = mk_tx_bundle(c.chain.state.trie.db, tx, prev_block.header, current_block.header)
     # Store the root node of each block into db
-    from ethereum.db import EphemDB
+    from ethereum.db import EphemDB, RefcountDB
     stateless_client_db = EphemDB()
+    stateless_client_trie = trie.Trie(RefcountDB(stateless_client_db), prev_block.header.state_root)
     for blk in stateless_client["blocks"]:
-        stateless_client_db.put(key=blk["state_root"], value=blk["root_node"])
+        stateless_client_trie.db.put(key=blk["state_root"], value=blk["root_node"])
+    
     # Verify the read list proof and store the nodes of the merkle branch in db
     for acct_proof_wrapper in tx_bundle["read_list_proof"]:
         for acct, wrapper in acct_proof_wrapper.items():
@@ -268,9 +245,8 @@ def test_stateless_client_tx_processing_simulation():
             # If account exist, proof verified
             if wrapper["exist_yet"]:
                 assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], wrapper["rlpdata"])
-                # If account data is 
-                if trie.Trie(stateless_client_db, state_root).get(utils.sha3(acct)) != wrapper["rlpdata"]:
-                    store_merkle_branch_nodes(stateless_client_db, wrapper["merkle_proof"])
+                # If account data does not stored yet, store it
+                store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
     # Do the same to write list proof
     for acct_proof_wrapper in tx_bundle["write_list_proof"]:
         for acct, wrapper in acct_proof_wrapper.items():
@@ -284,17 +260,37 @@ def test_stateless_client_tx_processing_simulation():
             # If account exist and proof verified, store the nodes of the merkle branch in db
             if wrapper["exist_yet"]:
                 assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], wrapper["rlpdata"])
-                if trie.Trie(stateless_client_db, state_root).get(utils.sha3(acct)) != wrapper["rlpdata"]:
-                    store_merkle_branch_nodes(stateless_client_db, wrapper["merkle_proof"])
-    
-    # TODO:
+                store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
+                # if stateless_client_trie.get(utils.sha3(acct)) != wrapper["rlpdata"]:
+                #     store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
+
     # Apply the transaction
     # Make ephemeral state
     from ethereum.state import State
     from ethereum.config import Env 
+    from ethereum.messages import apply_transaction
     stateless_client_state = State(
-        current_block.header.state_root, Env(stateless_client_db,
+        prev_block.header.state_root, Env(stateless_client_db,
         c.chain.env.config, c.chain.env.global_config))
+    snapshot = stateless_client_state.snapshot()
+    # Apply and verify the transaction
+    success, _ = apply_transaction(stateless_client_state, tx)
+    assert success
+    assert stateless_client_state.get_balance(tester.a2) == 1
+    stateless_client_state.revert(snapshot)
     # Store new nodes
+    for updated_acct_data in tx_bundle["updated_acct_proof"]:
+        for acct, wrapper in updated_acct_data.items():
+            blk_number = wrapper["blk_number"]
+            state_root = b''
+            # Find the matched block in state less client's block data
+            for blk in stateless_client["blocks"]:
+                if blk["number"] == blk_number:
+                    state_root = blk["state_root"] 
+            assert state_root == wrapper["state_root"]
+            assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], wrapper["rlpdata"])
+            # Store the new account data after verifying the proof
+            store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
+    # TODO:
     # Reject block prior to log on 
     
