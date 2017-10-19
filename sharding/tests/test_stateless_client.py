@@ -87,7 +87,7 @@ def test_tx_proof():
         assert set(get_merkle_proof(tmp_db, t.root,
                                     rlp.encode(int(i)))) == set(proof)
         assert verify_merkle_proof(
-            proof, t.root, rlp.encode(c.block.transactions[int(i)]))
+            proof, t.root, utils.sha3(rlp.encode(int(i))), rlp.encode(c.block.transactions[int(i)]))
 
 
 def test_account_proof():
@@ -121,16 +121,13 @@ def test_account_proof():
                                  c.head_state.trie.root_hash, addr)
         acct_rlpdata = c.head_state.trie.get(addr)
         assert verify_merkle_proof(
-            proof, c.head_state.trie.root_hash, acct_rlpdata)
+            proof, c.head_state.trie.root_hash, utils.sha3(addr), acct_rlpdata)
     # try verifying proofs against wrong value
     try:
-        verify_merkle_proof(proof, c.head_state.trie.root_hash,
+        verify_merkle_proof(proof, c.head_state.trie.root_hash, utils.sha3(addr),
                             bytes("wrong_value", encoding='utf-8'))
     except AssertionError:
         print("Can not verify proofs against wrong value")
-    else:
-        raise Exception(
-            "Shouldn't be able to verify proofs against wrong value")
 
 
 def test_transaction_bundle():
@@ -188,9 +185,9 @@ def test_transaction_bundle():
     for tx in block_9.transactions:
         tx_bundle_list.append(mk_tx_bundle(c.chain.state.trie.db, tx, block_8.header, block_9.header))
     # Proofs should be generated for the existing accounts
-    # for bundle in tx_bundle_list:
-    #     for k,v in bundle.items():
-    #         print(k,":",v)
+    for bundle in tx_bundle_list:
+        for k,v in bundle.items():
+            print(k,":",v)
 
 def test_stateless_client_tx_processing_simulation():
     alloc = {}
@@ -228,6 +225,7 @@ def test_stateless_client_tx_processing_simulation():
     # Store the root node of each block into db
     from ethereum.db import EphemDB, RefcountDB
     stateless_client_db = EphemDB()
+    stateless_client_db.put(utils.sha3(b''), b'')
     stateless_client_trie = trie.Trie(RefcountDB(stateless_client_db), prev_block.header.state_root)
     for blk in stateless_client["blocks"]:
         stateless_client_trie.db.put(key=blk["state_root"], value=blk["root_node"])
@@ -242,11 +240,9 @@ def test_stateless_client_tx_processing_simulation():
                 if blk["number"] == blk_number:
                     state_root = blk["state_root"] 
             assert state_root == wrapper["state_root"]
-            # If account exist, proof verified
-            if wrapper["exist_yet"]:
-                assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], wrapper["rlpdata"])
-                # If account data does not stored yet, store it
-                store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
+            assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], utils.sha3(acct), wrapper["rlpdata"])
+            # Store the new account data after verifying the proof
+            store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
     # Do the same to write list proof
     for acct_proof_wrapper in tx_bundle["write_list_proof"]:
         for acct, wrapper in acct_proof_wrapper.items():
@@ -257,13 +253,9 @@ def test_stateless_client_tx_processing_simulation():
                 if blk["number"] == blk_number:
                     state_root = blk["state_root"] 
             assert state_root == wrapper["state_root"]
-            # If account exist and proof verified, store the nodes of the merkle branch in db
-            if wrapper["exist_yet"]:
-                assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], wrapper["rlpdata"])
-                store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
-                # if stateless_client_trie.get(utils.sha3(acct)) != wrapper["rlpdata"]:
-                #     store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
-
+            assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], utils.sha3(acct), wrapper["rlpdata"])
+            # Store the new account data after verifying the proof
+            store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
     # Apply the transaction
     # Make ephemeral state
     from ethereum.state import State
@@ -272,12 +264,10 @@ def test_stateless_client_tx_processing_simulation():
     stateless_client_state = State(
         prev_block.header.state_root, Env(stateless_client_db,
         c.chain.env.config, c.chain.env.global_config))
-    snapshot = stateless_client_state.snapshot()
+    stateless_client_state.block_coinbase = prev_block.header.coinbase
     # Apply and verify the transaction
     success, _ = apply_transaction(stateless_client_state, tx)
-    assert success
-    assert stateless_client_state.get_balance(tester.a2) == 1
-    stateless_client_state.revert(snapshot)
+    assert success and stateless_client_state.get_balance(tester.a2) == 1
     # Store new nodes
     for updated_acct_data in tx_bundle["updated_acct_proof"]:
         for acct, wrapper in updated_acct_data.items():
@@ -288,9 +278,8 @@ def test_stateless_client_tx_processing_simulation():
                 if blk["number"] == blk_number:
                     state_root = blk["state_root"] 
             assert state_root == wrapper["state_root"]
-            assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], wrapper["rlpdata"])
+            assert verify_merkle_proof(wrapper["merkle_proof"], wrapper["state_root"], utils.sha3(acct), wrapper["rlpdata"])
             # Store the new account data after verifying the proof
             store_merkle_branch_nodes(stateless_client_trie.db, wrapper["merkle_proof"])
     # TODO:
     # Reject block prior to log on 
-    
