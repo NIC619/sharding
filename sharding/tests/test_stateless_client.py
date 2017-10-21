@@ -45,11 +45,13 @@ def chain(alloc={}, genesis_gas_limit=4712388,
 
 
 test_account_proof_code = """
-creator: public(address)
+owner: public(address)
+ok: public(num)
 
 @payable
 def __init__():
-    self.creator = msg.sender
+    self.owner = msg.sender
+    self.ok = 35
 
 def touch(addrs: address[3]):
     for i in range(3):
@@ -57,6 +59,9 @@ def touch(addrs: address[3]):
 
 def read_balance(addrs: address[2]) -> num(wei):
     return(addrs[0].balance + addrs[1].balance)
+
+def change_owner(new_owner: address):
+    self.owner = new_owner
 """
 
 
@@ -204,9 +209,36 @@ def test_verify_tx_bundle():
     c.tx(sender=tester.k1, to=tester.a2, value=1, data=b'', read_list=[
          tester.a1, tester.a2], write_list=[tester.a1, tester.a2])
     c.mine(1)
+    current_block_number += 1
 
     # Get the block that includes the target transaction
+    current_block = c.chain.get_block_by_number(current_block_number)
+    tx = current_block.transactions[0]
+    # Get the block to build the proof on
+    prev_block = c.chain.get_block_by_number(current_block_number-1)
+    # Get the tx bundle of the target transaction
+    tx_bundle = mk_confirmed_tx_bundle(c.chain.state.trie.db, tx, prev_block.header, current_block.header)
+    # Verify tx bundle, set coinbase
+    assert verify_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
+
+
+    # Next test tx which modifies account storage
+    tx_sender_and_to = [tester.a1, utils.mk_contract_address(tester.a1, c.head_state.get_nonce(tester.a1))]
+    test_account_proof_contract = c.contract(
+        test_account_proof_code, sender=tester.k1, value=5, language='viper',
+        read_list=tx_sender_and_to,
+        write_list=tx_sender_and_to)
+    c.mine(1)
     current_block_number += 1
+    assert c.chain.state.get_balance(tester.a1) == 4
+    assert test_account_proof_contract.get_owner() == '0x' + utils.encode_hex(tester.a1)
+
+    test_account_proof_contract.change_owner(tester.a2, sender=tester.k1, read_list=tx_sender_and_to, write_list=tx_sender_and_to)
+    assert test_account_proof_contract.get_owner() == '0x' + utils.encode_hex(tester.a2)
+    c.mine(1)
+    current_block_number += 1
+
+    # Get the block that includes the target transaction
     current_block = c.chain.get_block_by_number(current_block_number)
     tx = current_block.transactions[0]
     # Get the block to build the proof on

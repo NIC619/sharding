@@ -252,29 +252,31 @@ test_create_copy_rawcode = bytes(bytearray([
 
 
 def test_read_write_access():
-    # NOTE: tx.sender and tx.to and new contract address will be added to read/write list automatically
     alloc = {}
     alloc[tester.a1] = {'balance': 10}
     t = chain(alloc)
     
+    tx_sender_and_to = [tester.a0, utils.mk_contract_address(tester.a0, t.head_state.get_nonce(tester.a0))]
     # Deploy test storage layout contract
-    storage_layout_contract = t.contract(test_new_storage_layout_code, language='viper')
+    storage_layout_contract = t.contract(test_new_storage_layout_code, language='viper', read_list=tx_sender_and_to, write_list=tx_sender_and_to)
+    tx_sender_and_to2 = [tester.a0, utils.mk_contract_address(tester.a0, t.head_state.get_nonce(tester.a0))]
     # Deploy test read write access contract
-    read_write_access_contract = t.contract(test_read_write_access_code, language='viper')
+    read_write_access_contract = t.contract(test_read_write_access_code, language='viper', read_list=tx_sender_and_to2, write_list=tx_sender_and_to2)
     # Test read balance
-    assert read_write_access_contract.read_balance(tester.a1, 10, read_list=[tester.a1])
+    assert read_write_access_contract.read_balance(tester.a1, 10, read_list=[tester.a1]+tx_sender_and_to2, write_list=tx_sender_and_to2)
     # Test read code size
-    assert read_write_access_contract.read_code_size(storage_layout_contract.address, read_list=[storage_layout_contract.address])
+    assert read_write_access_contract.read_code_size(storage_layout_contract.address, read_list=[storage_layout_contract.address]+tx_sender_and_to2, write_list=tx_sender_and_to2)
     # Test write then read storage
-    read_write_access_contract.write_storage()
+    read_write_access_contract.write_storage(read_list=tx_sender_and_to2, write_list=tx_sender_and_to2)
     assert read_write_access_contract.get_number() == 99
     # Test cross contract read and write storage
     assert storage_layout_contract.get_number() == 9
-    read_write_access_contract.cross_contract_read_write_storage(storage_layout_contract.address, utils.sha3("set_num()")[:4], read_list=[storage_layout_contract.address], write_list=[storage_layout_contract.address])
+    read_write_access_contract.cross_contract_read_write_storage(storage_layout_contract.address, utils.sha3("set_num()")[:4], read_list=[storage_layout_contract.address]+tx_sender_and_to2, write_list=[storage_layout_contract.address]+tx_sender_and_to2)
     assert read_write_access_contract.get_number() == 1111
     assert storage_layout_contract.get_number() == 25
     # Test value transfer
-    t.tx(sender=tester.k1, to=tester.a2, value=1, data=b'', read_list=[], write_list=[])
+    t.tx(sender=tester.k1, to=tester.a2, value=1, data=b'', read_list=[tester.a1, tester.a2], write_list=[tester.a1, tester.a2])
+    t.mine(1)
     # log.info('CURRENT HEAD:{}'.format(encode_hex(t.chain.shards[shard_id].head_hash)))
 
 def test_storage_layout():
