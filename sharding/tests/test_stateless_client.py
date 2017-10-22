@@ -46,12 +46,11 @@ def chain(alloc={}, genesis_gas_limit=4712388,
 
 test_account_proof_code = """
 owner: public(address)
-ok: public(num)
+map: num[num]
 
 @payable
 def __init__():
     self.owner = msg.sender
-    self.ok = 35
 
 def touch(addrs: address[3]):
     for i in range(3):
@@ -62,6 +61,9 @@ def read_balance(addrs: address[2]) -> num(wei):
 
 def change_owner(new_owner: address):
     self.owner = new_owner
+
+def set_map(k: bytes32, v: bytes32):
+    self.map[1] = 1
 """
 
 
@@ -247,3 +249,20 @@ def test_verify_tx_bundle():
     tx_bundle = mk_confirmed_tx_bundle(c.chain.state.trie.db, tx, prev_block.header, current_block.header)
     # Verify tx bundle, set coinbase
     assert verify_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
+
+def test_stateless_client_on_trie_storage():
+    alloc = {}
+    alloc[tester.a0] = {'balance': 10}
+    c = chain(alloc)
+
+    contract_addr = utils.mk_contract_address(tester.a0, c.head_state.get_nonce(tester.a0))
+    test_account_proof_contract = c.contract(
+        test_account_proof_code, value=10, language='viper',
+        accessible_storage_key_list=[(contract_addr + utils.encode_int32(0))])
+    c.mine(1)
+
+    arg = utils.sha3("set_map(bytes32,bytes32)")[:4] + utils.encode_int32(0) + utils.encode_int32(0xabcd)
+    _, accessed_key_list = c.call(to=test_account_proof_contract.address, data=arg)
+
+    test_account_proof_contract.set_map(utils.encode_int32(0), utils.encode_int32(0xabcd), accessible_storage_key_list=list(accessed_key_list))
+
