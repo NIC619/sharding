@@ -222,7 +222,7 @@ def test_transaction_bundle():
     try:
         verify_tx_bundle(
             c.chain.env,
-            c.chain.get_block_by_number(8).header.state_root,
+            c.chain.get_block_by_number(tx_bundle["block_number"]).header.state_root,
             tester.a1,
             tx_bundle
         )
@@ -235,7 +235,7 @@ def test_transaction_bundle():
         {tester.a1: 
             mk_account_proof_wrapper(
                 c.chain.state,
-                c.chain.get_block_by_number(8).header,
+                c.chain.get_block_by_number(8).header.state_root,
                 tester.a1
             )
         }
@@ -244,14 +244,14 @@ def test_transaction_bundle():
         {tester.a1: 
             mk_account_proof_wrapper(
                 c.chain.state,
-                c.chain.get_block_by_number(8).header,
+                c.chain.get_block_by_number(8).header.state_root,
                 tester.a1
             )
         }
     )
     verify_tx_bundle(
         c.chain.env,
-        c.chain.get_block_by_number(8).header.state_root,
+        c.chain.get_block_by_number(tx_bundle["block_number"]).header.state_root,
         tester.a1,
         tx_bundle
     )
@@ -285,7 +285,12 @@ def test_stateless_client_on_bytearray_storage():
     # Get the tx bundle of the target transaction
     tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header, ephem_state)
     # Verify tx bundle
-    assert verify_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
+    assert verify_tx_bundle(
+        c.chain.env,
+        c.chain.get_block_by_number(tx_bundle["block_number"]).header.state_root,
+        c.chain.get_block_by_number(tx_bundle["block_number"]).header.coinbase,
+        tx_bundle
+    )
 
 
     # Next test tx which modifies account storage
@@ -315,7 +320,12 @@ def test_stateless_client_on_bytearray_storage():
     # Get the tx bundle of the target transaction
     tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header, ephem_state)
     # Verify tx bundle, set coinbase
-    assert verify_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
+    assert verify_tx_bundle(
+        c.chain.env,
+        c.chain.get_block_by_number(tx_bundle["block_number"]).header.state_root,
+        c.chain.get_block_by_number(tx_bundle["block_number"]).header.coinbase,
+        tx_bundle
+    )
 
 def test_stateless_client_on_trie_storage():
     alloc = {}
@@ -349,4 +359,9 @@ def test_stateless_client_on_trie_storage():
     tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header, ephem_state)
     # print(tx_bundle["read_list_proof"])
     # Verify tx bundle, set coinbase
-    assert verify_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
+    assert verify_tx_bundle(
+        c.chain.env,
+        c.chain.get_block_by_number(tx_bundle["block_number"]).header.state_root,
+        c.chain.get_block_by_number(tx_bundle["block_number"]).header.coinbase,
+        tx_bundle
+    )
