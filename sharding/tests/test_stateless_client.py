@@ -15,7 +15,7 @@ from ethereum.tools.stateless_client import (get_merkle_proof,
                                              mk_account_proof_wrapper,
                                              mk_pending_tx_bundle,
                                              mk_confirmed_tx_bundle,
-                                             verify_confirmed_tx_bundle)
+                                             verify_tx_bundle)
 
 
 @pytest.fixture(scope='function')
@@ -57,6 +57,7 @@ def touch(addrs: address[3]):
     for i in range(3):
         send(addrs[i], 1)
 
+@constant
 def read_balance(addrs: address[2]) -> num(wei):
     return(addrs[0].balance + addrs[1].balance)
 
@@ -144,12 +145,18 @@ def test_transaction_bundle():
     alloc[tester.a0] = {'balance': 10}
     c = chain(alloc)
 
-    tx_sender_and_to = [tester.a0, utils.mk_contract_address(tester.a0, c.head_state.get_nonce(tester.a0))]
+    tx_sender_and_to = [
+        tester.a0,
+        utils.mk_contract_address(tester.a0, c.head_state.get_nonce(tester.a0))]
     test_account_proof_contract = c.contract(
         test_account_proof_code, value=10, language='viper',
         read_list=tx_sender_and_to,
         write_list=tx_sender_and_to)
     c.mine(1)
+
+    # Take state snapshot
+    ephem_state = c.chain.state.ephemeral_clone()
+
     # Block #2, first touch of the accounts
     not_yet_exits_accts = [tester.a4, tester.a5, tester.a6]
     assert c.head_state.get_balance(test_account_proof_contract.address) == 10
@@ -168,35 +175,87 @@ def test_transaction_bundle():
     block_3 = c.chain.get_block_by_number(3)
     tx_bundle_list = []
     for tx in block_3.transactions:
-        tx_bundle_list.append(mk_confirmed_tx_bundle(c.chain.state.trie.db, tx, block_2.header, block_3.header))
+        tx_bundle_list.append(
+            mk_confirmed_tx_bundle(
+                c.chain.state,
+                tx,
+                block_2.header,
+                block_3.header,
+                ephem_state
+            )
+        )
     # Since touched accounts do not exist yet in block #1
     # there should be no proofs generated for them and
-    # `exist_yet` should be True to indicate their non-existence
-    # tx.sender and tx.to are exceptions since they already
-    # exist in block #1
     
+    # for bundle in tx_bundle_list:
+    #     for k,v in bundle.items():
+    #         print(k,":",v)
+    
+    # Foward 5 blocks
     c.mine(5)
 
-    # Block #9, revisit the touched accounts.
-    existing_accts = [tester.a4, tester.a5]
-    assert test_account_proof_contract.read_balance(
-        existing_accts,
-        read_list=existing_accts + tx_sender_and_to,
-        write_list=existing_accts + tx_sender_and_to) == 2
-    c.mine(1)
+    # Test tx bundle of pending tx
+    from ethereum.transactions import Transaction
+    pending_tx = Transaction(
+        nonce=c.chain.state.get_nonce(tester.a0),
+        gasprice=0,
+        startgas=3141592,
+        to=tester.a4,
+        value=1,
+        data=b'',
+        read_list=[tester.a0, tester.a4],
+        write_list=[tester.a0, tester.a4]
+    ).sign(tester.k0)
+    tx_bundle = mk_pending_tx_bundle(
+        c.chain.state,
+        pending_tx,
+        c.chain.get_block_by_number(8).header
+    )
+    # Since tester.a4 is touched in block #2, there
+    # should be proof of tester.a4
+    for proof in tx_bundle["read_list_proof"]:
+        for acct, wrapper in proof.items():
+            if acct == tester.a4:
+                assert wrapper["acct_rlpdata"]
+    
+    # Verify the tx bundle
+    try:
+        verify_tx_bundle(
+            c.chain.env,
+            c.chain.get_block_by_number(8).header.state_root,
+            tester.a1,
+            tx_bundle
+        )
+        print("This should not have happened")
+    except KeyError:
+        print("Shouldn't be able to verify since there's no proof of coinbase account in the tx bundle")
+    # but first we need to add proof of coinbase account into the proof
+    # Assume our account is tester.a1
+    tx_bundle["read_list_proof"].append(
+        {tester.a1: 
+            mk_account_proof_wrapper(
+                c.chain.state,
+                c.chain.get_block_by_number(8).header,
+                tester.a1
+            )
+        }
+    )
+    tx_bundle["write_list_proof"].append(
+        {tester.a1: 
+            mk_account_proof_wrapper(
+                c.chain.state,
+                c.chain.get_block_by_number(8).header,
+                tester.a1
+            )
+        }
+    )
+    verify_tx_bundle(
+        c.chain.env,
+        c.chain.get_block_by_number(8).header.state_root,
+        tester.a1,
+        tx_bundle
+    )
 
-    # Make proofs for the accounts touched. Since they are touched
-    # in block #9, proofs will be made based on storage root of
-    # block #8(or even earlier blocks)
-    block_8 = c.chain.get_block_by_number(8)
-    block_9 = c.chain.get_block_by_number(9)
-    tx_bundle_list = []
-    for tx in block_9.transactions:
-        tx_bundle_list.append(mk_confirmed_tx_bundle(c.chain.state.trie.db, tx, block_8.header, block_9.header))
-    # Proofs should be generated for the existing accounts
-    for bundle in tx_bundle_list:
-        for k,v in bundle.items():
-            print(k,":",v)
 
 def test_stateless_client_on_bytearray_storage():
     alloc = {}
@@ -208,6 +267,9 @@ def test_stateless_client_on_bytearray_storage():
     for i in range(3):
         c.mine(1)
         current_block_number += 1
+
+    # Take state snapshot
+    ephem_state = c.chain.state.ephemeral_clone()
 
     # Target transaction
     c.tx(sender=tester.k1, to=tester.a2, value=1, data=b'', read_list=[
@@ -221,9 +283,9 @@ def test_stateless_client_on_bytearray_storage():
     # Get the block to build the proof on
     prev_block = c.chain.get_block_by_number(current_block_number-1)
     # Get the tx bundle of the target transaction
-    tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header)
-    # Verify tx bundle, set coinbase
-    assert verify_confirmed_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
+    tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header, ephem_state)
+    # Verify tx bundle
+    assert verify_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
 
 
     # Next test tx which modifies account storage
@@ -237,6 +299,9 @@ def test_stateless_client_on_bytearray_storage():
     assert c.chain.state.get_balance(tester.a1) == 4
     assert test_account_proof_contract.get_owner() == '0x' + utils.encode_hex(tester.a1)
 
+    # Take state snapshot
+    ephem_state = c.chain.state.ephemeral_clone()
+
     test_account_proof_contract.change_owner(tester.a2, sender=tester.k1, read_list=tx_sender_and_to, write_list=tx_sender_and_to)
     assert test_account_proof_contract.get_owner() == '0x' + utils.encode_hex(tester.a2)
     c.mine(1)
@@ -248,9 +313,9 @@ def test_stateless_client_on_bytearray_storage():
     # Get the block to build the proof on
     prev_block = c.chain.get_block_by_number(current_block_number-1)
     # Get the tx bundle of the target transaction
-    tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header)
+    tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header, ephem_state)
     # Verify tx bundle, set coinbase
-    assert verify_confirmed_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
+    assert verify_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
 
 def test_stateless_client_on_trie_storage():
     alloc = {}
@@ -284,4 +349,4 @@ def test_stateless_client_on_trie_storage():
     tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header, ephem_state)
     # print(tx_bundle["read_list_proof"])
     # Verify tx bundle, set coinbase
-    assert verify_confirmed_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
+    assert verify_tx_bundle(c.chain.env, prev_block.header.state_root, prev_block.header.coinbase, tx_bundle)
