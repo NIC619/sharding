@@ -154,9 +154,6 @@ def test_transaction_bundle():
         write_list=tx_sender_and_to)
     c.mine(1)
 
-    # Take state snapshot
-    ephem_state = c.chain.state.ephemeral_clone()
-
     # Block #2, first touch of the accounts
     not_yet_exits_accts = [tester.a4, tester.a5, tester.a6]
     assert c.head_state.get_balance(test_account_proof_contract.address) == 10
@@ -180,8 +177,7 @@ def test_transaction_bundle():
                 c.chain.state,
                 tx,
                 block_2.header,
-                block_3.header,
-                ephem_state
+                block_3.header
             )
         )
     # Since touched accounts do not exist yet in block #1
@@ -268,9 +264,6 @@ def test_stateless_client_on_bytearray_storage():
         c.mine(1)
         current_block_number += 1
 
-    # Take state snapshot
-    ephem_state = c.chain.state.ephemeral_clone()
-
     # Target transaction
     c.tx(sender=tester.k1, to=tester.a2, value=1, data=b'', read_list=[
          tester.a1, tester.a2], write_list=[tester.a1, tester.a2])
@@ -283,7 +276,7 @@ def test_stateless_client_on_bytearray_storage():
     # Get the block to build the proof on
     prev_block = c.chain.get_block_by_number(current_block_number-1)
     # Get the tx bundle of the target transaction
-    tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header, ephem_state)
+    tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header)
     # Verify tx bundle
     assert verify_tx_bundle(
         c.chain.env,
@@ -296,16 +289,13 @@ def test_stateless_client_on_bytearray_storage():
     # Next test tx which modifies account storage
     tx_sender_and_to = [tester.a1, utils.mk_contract_address(tester.a1, c.head_state.get_nonce(tester.a1))]
     test_account_proof_contract = c.contract(
-        test_account_proof_code, sender=tester.k1, value=5, language='viper',
+        test_account_proof_code, sender=tester.k1, value=1, language='viper',
         read_list=tx_sender_and_to,
         write_list=tx_sender_and_to)
     c.mine(1)
     current_block_number += 1
-    assert c.chain.state.get_balance(tester.a1) == 4
+    assert c.chain.state.get_balance(tester.a1) == 8
     assert test_account_proof_contract.get_owner() == '0x' + utils.encode_hex(tester.a1)
-
-    # Take state snapshot
-    ephem_state = c.chain.state.ephemeral_clone()
 
     test_account_proof_contract.change_owner(tester.a2, sender=tester.k1, read_list=tx_sender_and_to, write_list=tx_sender_and_to)
     assert test_account_proof_contract.get_owner() == '0x' + utils.encode_hex(tester.a2)
@@ -318,7 +308,7 @@ def test_stateless_client_on_bytearray_storage():
     # Get the block to build the proof on
     prev_block = c.chain.get_block_by_number(current_block_number-1)
     # Get the tx bundle of the target transaction
-    tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header, ephem_state)
+    tx_bundle = mk_confirmed_tx_bundle(c.chain.state, tx, prev_block.header, current_block.header)
     # Verify tx bundle, set coinbase
     assert verify_tx_bundle(
         c.chain.env,
@@ -326,6 +316,88 @@ def test_stateless_client_on_bytearray_storage():
         c.chain.get_block_by_number(tx_bundle["block_number"]).header.coinbase,
         tx_bundle
     )
+
+    # Next, test txs which have common accounts in their read/write list
+    # In tx #1 we initiate the contract with 3 ether deposit
+    # In tx #2 invoke contract's touche method to distribute 1 ether to 3 different account seperately
+    # Hence tx #1 and #2 can not be processed in parallel(assumed that this is prohibited)
+    
+    # Take a state snapshot
+    ephem_state = c.chain.state.ephemeral_clone()
+
+    # tx #1
+    tx_sender_and_to = [tester.a1, utils.mk_contract_address(tester.a1, c.head_state.get_nonce(tester.a1))]
+    test_account_proof_contract = c.contract(
+        test_account_proof_code, sender=tester.k1, value=3, language='viper',
+        read_list=tx_sender_and_to,
+        write_list=tx_sender_and_to)
+    assert c.head_state.get_balance(test_account_proof_contract.address) == 3
+
+    # tx #2
+    touched_addrs = [tester.a3, tester.a4, tester.a5]
+    # send 1 wei to each of the accounts in touched_addrs
+    test_account_proof_contract.touch(
+        touched_addrs,
+        sender=tester.k1,
+        read_list=touched_addrs + tx_sender_and_to,
+        write_list=touched_addrs + tx_sender_and_to
+    )
+    c.mine(1)
+    current_block_number += 1
+    assert c.chain.state.get_balance(test_account_proof_contract.address) == 0
+    
+    # Generate and Verify tx bundle of tx #1
+    current_block = c.chain.get_block_by_number(current_block_number)
+    tx_1 = current_block.transactions[0]
+    prev_block = c.chain.get_block_by_number(current_block_number-1)
+    tx_1_bundle = mk_confirmed_tx_bundle(c.chain.state, tx_1, prev_block.header, current_block.header)
+    # Verify tx bundle, set coinbase
+    assert verify_tx_bundle(
+        c.chain.env,
+        c.chain.get_block_by_number(tx_1_bundle["block_number"]).header.state_root,
+        c.chain.get_block_by_number(tx_1_bundle["block_number"]).header.coinbase,
+        tx_1_bundle
+    )
+
+    # Next we try to generate and verify the tx bundle of tx #2 base on final state of previous block
+    tx_2 = current_block.transactions[1]
+    tx_2_bundle = mk_confirmed_tx_bundle(c.chain.state, tx_2, prev_block.header, current_block.header)
+    # Try verifying tx bundle
+    from ethereum.exceptions import InvalidNonce, InsufficientBalance
+    try:
+        assert verify_tx_bundle(
+            c.chain.env,
+            c.chain.get_block_by_number(tx_2_bundle["block_number"]).header.state_root,
+            c.chain.get_block_by_number(tx_2_bundle["block_number"]).header.coinbase,
+            tx_2_bundle
+        )
+        print("This should not have happened")
+    except InvalidNonce or InsufficientBalance:
+        print("Tx bundle of tx #2 verification failed as expected")
+    
+    # So proof of tx bundle of tx #2 should be calculated base on the state after tx #1 is applied
+    # Apply tx #1 to ephemeral state and commit the state
+    from ethereum.messages import apply_transaction
+    from ethereum.transactions import Transaction
+    success, _ = apply_transaction(ephem_state, rlp.decode(tx_1_bundle["tx_rlpdata"], Transaction)) 
+    assert success
+    ephem_state.commit()
+    # Update the proofs of tx bundle of tx #2
+    tx_2_bundle["state_root"] = ephem_state.trie.root_hash
+    for i, acct_proof_wrapper in enumerate(tx_2_bundle["read_list_proof"]):
+        for acct, _ in acct_proof_wrapper.items():
+            tx_2_bundle["read_list_proof"][i] = {acct: mk_account_proof_wrapper(ephem_state, ephem_state.trie.root_hash, acct)}
+    for i, acct_proof_wrapper in enumerate(tx_2_bundle["write_list_proof"]):
+        for acct, _ in acct_proof_wrapper.items():
+            tx_2_bundle["write_list_proof"][i] = {acct: mk_account_proof_wrapper(ephem_state, ephem_state.trie.root_hash, acct)}
+    # Verify the updated tx bundle
+    assert verify_tx_bundle(
+        c.chain.env,
+        ephem_state.trie.root_hash,
+        c.chain.get_block_by_number(tx_2_bundle["block_number"]).header.coinbase,
+        tx_2_bundle
+    )
+
 
 def test_stateless_client_on_trie_storage():
     alloc = {}
@@ -340,7 +412,7 @@ def test_stateless_client_on_trie_storage():
         accessible_storage_key_list=[(contract_addr + utils.encode_int32(0))])
     c.mine(1)
     current_block_number += 1
-    # Take state snapshot
+    # Take a state snapshot
     ephem_state = c.chain.state.ephemeral_clone()
 
     arg = utils.sha3("set_map(int128,int128)")[:4] + utils.encode_int32(1) + utils.encode_int32(3)
