@@ -1,6 +1,6 @@
 from ethereum.config import default_config
-from ethereum.block import Block, BlockHeader
-from ethereum import trie
+from sharding.block import Block, BlockHeader
+from sharding.trie import Trie
 from ethereum.db import EphemDB
 from ethereum.utils import sha3, encode_hex
 import rlp
@@ -181,9 +181,9 @@ def verify_execution_results(state, block):
 
 # Make the root of a receipt tree
 def mk_receipt_sha(receipts):
-    t = trie.Trie(EphemDB())
+    t = Trie(EphemDB())
     for i, receipt in enumerate(receipts):
-        t.update(rlp.encode(i), rlp.encode(receipt))
+        t.update(sha3(rlp.encode(i)), rlp.encode(receipt))
     return t.root_hash
 
 

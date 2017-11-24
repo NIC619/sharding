@@ -1,5 +1,5 @@
-from ethereum.state import State
-from ethereum.block import Block, BlockHeader, BLANK_UNCLES_HASH
+from sharding.state import State
+from sharding.block import Block, BlockHeader, BLANK_UNCLES_HASH
 from ethereum.utils import decode_hex, big_endian_to_int, encode_hex, \
     parse_as_bin, parse_as_int, normalize_address
 from ethereum.config import Env

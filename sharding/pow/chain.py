@@ -5,8 +5,8 @@ import time
 import itertools
 from ethereum import utils
 from ethereum.utils import parse_as_bin, big_endian_to_int, is_string
-from ethereum.meta import apply_block
-from ethereum.common import update_block_env_variables
+from sharding.meta import apply_block
+from sharding.common import update_block_env_variables
 from ethereum.messages import apply_transaction
 import rlp
 from rlp.utils import encode_hex
@@ -14,10 +14,10 @@ from ethereum.exceptions import InvalidNonce, InsufficientStartGas, UnsignedTran
     BlockGasLimitReached, InsufficientBalance, InvalidTransaction, VerificationFailed
 from ethereum.slogging import get_logger, configure_logging
 from ethereum.config import Env
-from ethereum.state import State, dict_to_prev_header
-from ethereum.block import Block, BlockHeader, BLANK_UNCLES_HASH, FakeHeader
+from sharding.state import State, dict_to_prev_header
+from sharding.block import Block, BlockHeader, BLANK_UNCLES_HASH, FakeHeader
 from ethereum.pow.consensus import initialize
-from ethereum.genesis_helpers import mk_basic_state, state_from_genesis_declaration, \
+from sharding.genesis_helpers import mk_basic_state, state_from_genesis_declaration, \
     initialize_genesis_keys
 from ethereum.db import RefcountDB
 

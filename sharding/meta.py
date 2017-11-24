@@ -1,12 +1,12 @@
 from ethereum.slogging import get_logger
 log = get_logger('eth.block_creation')
-from ethereum.block import Block, BlockHeader
-from ethereum.common import mk_block_from_prevstate, validate_header, \
+from sharding.block import Block, BlockHeader
+from sharding.common import mk_block_from_prevstate, validate_header, \
     verify_execution_results, validate_transaction_tree, \
     set_execution_results, add_transactions, post_finalize
 from ethereum.consensus_strategy import get_consensus_strategy
 from ethereum.messages import apply_transaction
-from ethereum.state import State
+from sharding.state import State
 from ethereum.utils import sha3, encode_hex
 import rlp
 

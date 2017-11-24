@@ -1,12 +1,12 @@
 from ethereum.utils import sha3, privtoaddr, int_to_addr, to_string, big_endian_to_int, checksum_encode, int_to_big_endian, encode_hex
-from ethereum.genesis_helpers import mk_basic_state
+from sharding.genesis_helpers import mk_basic_state
 from ethereum.transactions import Transaction
 from ethereum.consensus_strategy import get_consensus_strategy
 from ethereum.config import config_homestead, config_tangerine, config_spurious, config_metropolis, default_config, Env
 from ethereum.pow.ethpow import Miner
 from ethereum.messages import apply_transaction, apply_message
-from ethereum.common import verify_execution_results, mk_block_from_prevstate, set_execution_results
-from ethereum.meta import make_head_candidate
+from sharding.common import verify_execution_results, mk_block_from_prevstate, set_execution_results
+from sharding.meta import make_head_candidate
 from ethereum.abi import ContractTranslator
 import rlp
 # Initialize accounts
@@ -157,7 +157,7 @@ class State(object):
 
 class Chain(object):
     def __init__(self, alloc=base_alloc, env=None, genesis=None):
-        from ethereum.pow import chain as pow_chain
+        from sharding.pow import chain as pow_chain
         if genesis:
             if type(genesis) != dict and genesis.env.config['CONSENSUS_STRATEGY'] == 'hybrid_casper':
                 from ethereum.hybrid_casper import chain as hybrid_casper_chain

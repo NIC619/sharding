@@ -5,9 +5,9 @@ from ethereum.utils import normalize_address, hash32, trie_root, \
     decode_hex, sha3, is_string, is_numeric
 from rlp.sedes import big_endian_int, Binary, binary, CountableList
 from ethereum import utils
-from ethereum import trie
-from ethereum.trie import Trie
-from ethereum.securetrie import SecureTrie
+from sharding import trie
+from sharding.trie import Trie
+from sharding.securetrie import SecureTrie
 from ethereum.config import default_config, Env
 from ethereum.block import FakeHeader
 from ethereum.db import BaseDB, EphemDB, OverlayDB, RefcountDB
@@ -173,7 +173,7 @@ class State():
                 rlpdata = b''
         else:
             rlpdata = self.trie.get(address)
-        if rlpdata != trie.BLANK_NODE:
+        if rlpdata not in (b'', None):
             o = rlp.decode(rlpdata, Account, env=self.env, address=address)
         else:
             o = Account.blank_account(
@@ -361,7 +361,8 @@ class State():
         for addr, acct in self.cache.items():
             if acct.touched or acct.deleted:
                 acct.commit()
-                self.deletes.extend(acct.storage_trie.deletes)
+                # delete record not supported
+                # self.deletes.extend(acct.storage_trie.deletes)
                 self.changed[addr] = True
                 if self.account_exists(addr) or allow_empties:
                     self.trie.update(addr, rlp.encode(acct))
@@ -374,8 +375,9 @@ class State():
                             self.db.delete(b'address:' + addr)
                         except KeyError:
                             pass
-        self.deletes.extend(self.trie.deletes)
-        self.trie.deletes = []
+        # delete record not supported
+        # self.deletes.extend(self.trie.deletes)
+        # self.trie.deletes = []
         self.cache = {}
         self.journal = []
 

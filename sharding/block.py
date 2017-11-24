@@ -3,9 +3,7 @@ from ethereum.utils import normalize_address, hash32, trie_root, \
     big_endian_int, address, int256, encode_hex, decode_hex, encode_int, sha3
 from rlp.sedes import big_endian_int, Binary, binary, CountableList
 from ethereum import utils
-from ethereum import trie
-from ethereum.trie import Trie
-from ethereum.securetrie import SecureTrie
+from sharding import trie
 from ethereum.config import default_config
 from ethereum.transactions import Transaction
 from ethereum.db import BaseDB
