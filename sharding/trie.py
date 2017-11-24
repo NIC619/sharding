@@ -396,11 +396,9 @@ class Trie():
         assert isinstance(self.root, bytes)
 
     def get(self, key):
-        assert len(key) == 32
         return _get(self.db, self.root, encode_bin(key))
 
     def get_branch(self, key):
-        assert len(key) == 32
         if(self.root == BLANK_ROOT):
             return []
         o = _get_branch(self.db, self.root, encode_bin(key))
@@ -412,7 +410,6 @@ class Trie():
         return o
 
     def update(self, key, value):
-        assert len(key) == 32
         self.root = _update(self.db, self.root, encode_bin(key), value)
 
     def delete(self, key):

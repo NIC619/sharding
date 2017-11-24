@@ -66,7 +66,7 @@ class Account(rlp.Serializable):
         self.address = address
         super(Account, self).__init__(nonce, balance, storage, code_hash)
         self.storage_cache = {}
-        self.storage_trie = SecureTrie(Trie(RefcountDB(self.env.db)))
+        self.storage_trie = Trie(RefcountDB(self.env.db))
         self.storage_trie.root_hash = self.storage
         self.touched = False
         self.existent_at_start = True
